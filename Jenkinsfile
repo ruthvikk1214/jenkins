@@ -1,42 +1,48 @@
 pipeline {
-    agent {
-        node {
-            label 'roboshop'
-        }
-    }
+    agent any
+
     environment {
         COURSE = 'DevOps'
     }
+
     options {
         disableConcurrentBuilds()
         timeout(time: 5, unit: 'MINUTES')
     }
+
     parameters {
-        string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Branch to build')
+        string(
+            name: 'BRANCH_NAME',
+            defaultValue: 'main',
+            description: 'Branch to build'
+        )
     }
+
     stages {
         stage('Build') {
             steps {
-                sh """
+                sh '''
                     echo "Building"
-                    // echo "Course: ${COURSE}"
-                    // echo "Branch: ${params.BRANCH_NAME}"
+                    echo "Course: $COURSE"
+                    echo "Branch: $BRANCH_NAME"
                     sleep 10
-                """
+                '''
             }
         }
+
         stage('Test') {
             steps {
-                sh """
+                sh '''
                     echo "Testing"
-                """
+                '''
             }
         }
+
         stage('Deploy') {
             steps {
-                sh """
+                sh '''
                     echo "Deploying"
-                """
+                '''
             }
         }
     }
