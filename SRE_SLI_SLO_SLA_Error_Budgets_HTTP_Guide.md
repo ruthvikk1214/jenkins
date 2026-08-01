@@ -1,6 +1,17 @@
-# Master SRE Guide: SLIs, SLOs, SLAs, Observability (ELK Stack) & Incident Management
+# Master SRE Guide: Complete AutoRABIT Preparation Package
 
-This master guide covers **SLIs/SLOs/SLAs & Error Budgets**, **Full Observability & ELK Stack Engineering**, and **Incident Response, On-Call, RCA & Blameless Postmortems** for enterprise SRE role interviews and production operations.
+This ultimate master guide covers **100% of the requirements from the AutoRABIT Site Reliability & Cloud Platform Engineer Job Description**:
+
+- **SLIs/SLOs/SLAs & Enforcing Error Budgets**
+- **Observability & ELK Stack Engineering** (Logs, Metrics, Alerts)
+- **Incident Response, On-Call, RCA & Blameless Postmortems**
+- **Automating Infrastructure using Terraform**
+- **CIS Benchmarks Level 1/2, SOC 2 Type II & ISO 27001 Security Controls**
+- **Database Operations & Performance Tuning** (PostgreSQL, MySQL, DynamoDB)
+- **Multi-Region High Availability & Disaster Recovery (DR) Architecture**
+- **AWS Compute Operations** (EKS, ECS, EC2, Lambda, SSM Session Manager)
+- **AIOps & Amazon Bedrock** (Log Anomaly Detection & Postmortem Summaries)
+- **Kyndryl Linux Sysadmin $\rightarrow$ SRE Transition Strategy & Elevator Pitch**
 
 ---
 
@@ -29,8 +40,6 @@ This master guide covers **SLIs/SLOs/SLAs & Error Budgets**, **Full Observabilit
 ---
 
 ## 2. HTTP Status Codes & SLI Classification
-
-When calculating Availability SLIs, HTTP status codes must be strictly categorized into **Good Events**, **Bad Events (Error Budget Burners)**, and **Excluded Client Events**.
 
 ```
 HTTP Requests Ingestion
@@ -73,15 +82,6 @@ $$\text{Availability SLI} = \left( \frac{\text{Count of HTTP }(2xx + 3xx)}{\text
   /
   sum(rate(http_requests_total{status=!~"4.."}[30d]))
 ) * 100
-```
-
-#### Kibana / Elastic (KQL) Filter:
-```kql
-# Good Events Filter
-service.name: "autorabit-release-engine" AND http.response.status_code: [200 TO 399]
-
-# Bad Events Filter (Error Budget Burners)
-service.name: "autorabit-release-engine" AND http.response.status_code: [500 TO 599]
 ```
 
 ---
@@ -127,17 +127,6 @@ $$\text{Burn Rate} = \frac{\text{Actual HTTP 5xx Rate}}{100\% - \text{SLO}}$$
 
 Together with **Beats** (Filebeat/Metricbeat), it is officially known as the **Elastic Stack**.
 
-```
-                        THE E-L-K STACK PIPELINE
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│     BEATS       │    │    LOGSTASH     │    │  ELASTICSEARCH  │    │     KIBANA      │
-│   (Filebeat)    │ ──►│   (Logstash)    │ ──►│ (Elasticsearch) │ ──►│    (Kibana)     │
-├─────────────────┤    ├─────────────────┤    ├─────────────────┤    ├─────────────────┤
-│ The Data        │    │ The Data        │    │ The Search &    │    │ The Visual      │
-│ Collector       │    │ Transformer     │    │ Storage Engine  │    │ Dashboard       │
-└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
-```
-
 ---
 
 ## 2. What is Observability & The 3 Pillars (MEL Triad)
@@ -180,50 +169,6 @@ Together with **Beats** (Filebeat/Metricbeat), it is officially known as the **E
 
 ---
 
-## 6. Index Lifecycle Management (ILM) JSON Policy
-
-```json
-{
-  "policy": {
-    "phases": {
-      "hot": {
-        "actions": { "rollover": { "max_primary_shard_size": "40gb", "max_age": "7d" } }
-      },
-      "warm": {
-        "min_age": "7d",
-        "actions": { "shrink": { "number_of_shards": 1 }, "forcemerge": { "max_num_segments": 1 } }
-      },
-      "cold": {
-        "min_age": "30d",
-        "actions": { "searchable_snapshot": { "snapshot_repository": "s3_backup" } }
-      },
-      "delete": { "min_age": "90d", "actions": { "delete": {} } }
-    }
-  }
-}
-```
-
----
-
-## 7. Cluster Troubleshooting (`Red` vs `Yellow` vs `Green`)
-
-- **`Green`**: All primary and replica shards assigned.
-- **`Yellow`**: Primary shards healthy, replica shards unassigned (No redundancy).
-- **`Red`**: Primary shard missing/corrupted! (Data loss / query failure occurring).
-
-#### Remediation for `Red` Cluster:
-```bash
-GET /_cluster/health
-GET /_cluster/allocation/explain
-```
-If disk full (`disk.watermark.flood_stage` hit), clear disk space and unlock index:
-```json
-PUT /<index_name>/_settings
-{ "index.blocks.read_only_allow_delete": null }
-```
-
----
-
 # SECTION 3: Incident Response, On-Call, RCA & Blameless Postmortems
 
 ## 1. The Incident Response Lifecycle
@@ -257,18 +202,7 @@ PUT /<index_name>/_settings
 
 ---
 
-## 3. Incident Severity Matrix & SLAs
-
-| Severity Level | Definition / Impact | Target MTTA (Acknowledge) | Target MTTR (Repair) | Communication Frequency |
-| :--- | :--- | :--- | :--- | :--- |
-| **P1 - Critical** | Total SaaS outage or core data pipeline failure affecting multiple enterprise tenants. | **< 5 minutes** | **< 30 minutes** | Every 15 minutes |
-| **P2 - High** | Core feature degraded with no workaround (e.g., Salesforce sync delay > 1 hour). | **< 15 minutes** | **< 2 hours** | Every 30 minutes |
-| **P3 - Medium** | Non-critical component degraded, workaround available (e.g., UI log rendering slow). | **< 1 hour** | **< 24 hours** | Every 4 hours |
-| **P4 - Low** | Minor bug, cosmetic issue, or low-priority internal alert. | **< 4 hours** | Next Sprint | Business Days |
-
----
-
-## 4. Root Cause Analysis (RCA): The 5-Whys Framework
+## 3. Root Cause Analysis (RCA): The 5-Whys Framework
 
 > *"Human error is NEVER the root cause. Human error is the starting point of an investigation."*
 
@@ -284,34 +218,134 @@ PUT /<index_name>/_settings
 
 ---
 
-## 5. Blameless Postmortem Template
+# SECTION 4: Automating Infrastructure using Terraform
 
-```markdown
-# Incident Postmortem: [P1] Release Engine Database Exhaustion
+## 1. Enterprise Terraform Architecture & State Management
 
-**Date**: 2026-08-01 | **Incident Commander**: [SRE Name] | **Severity**: P1  
-**Impact**: 1,200 Enterprise Customers experienced HTTP 503 errors for 25 minutes.  
-**Error Budget Consumed**: 38% of monthly budget.  
+### A. Remote Backend Configuration with State Locking
 
----
+```hcl
+# backend.tf
+terraform {
+  required_version = ">= 1.5.0"
 
-## 1. Executive Summary
-On August 1, 2026 at 14:10 UTC, the AutoRABIT Release Engine experienced a P1 outage lasting 25 minutes due to database connection pool saturation following a surge in metadata sync requests. Service was restored by executing an automated pod restart and deploying PgBouncer connection pooling configurations.
+  backend "s3" {
+    bucket         = "autorabit-terraform-state-prod"
+    key            = "eks/us-east-1/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "autorabit-tf-locks"
+    encrypt        = true
+  }
 
----
-
-## 2. Preventative Action Items (Jira Tracking)
-
-| Action Item | Type | Owner | Priority | Target Date | Jira Ticket |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| Deploy PgBouncer in front of RDS via Terraform | Prevention | SRE Team | P0 (Blocker) | 3 Days | `ENG-1042` |
-| Add `statement_timeout = 5s` to Postgres config | Mitigation | DBA Team | P1 | 5 Days | `ENG-1043` |
-| Update PagerDuty runbook with RDS Grafana links | Process | SRE Team | P2 | 7 Days | `ENG-1044` |
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
 ```
 
 ---
 
-# SECTION 4: STAR Interview Model Answers
+## 2. Refactoring & Drift Detection
+
+### A. The `moved {}` Block (Terraform 1.1+)
+```hcl
+moved {
+  from = aws_security_group.web_sg
+  to   = module.vpc.aws_security_group.web_sg[0]
+}
+```
+
+### B. Detecting Drift via CLI Exit Codes:
+```bash
+terraform plan -detailed-exitcode
+```
+- **Exit Code `0`**: Match.
+- **Exit Code `2`**: **Drift Detected!**
+
+---
+
+# SECTION 5: CIS Benchmarks, SOC 2 Type II & ISO 27001 Security Controls
+
+## 1. CIS Level 1 vs Level 2 Linux OS Hardening
+
+- **CIS Level 1**: Essential, non-disruptive baseline.
+- **CIS Level 2 (Defense-in-Depth)**: Strict kernel parameters, mount flags, and audit rules for high-security enterprise environments.
+
+### A. Kernel Hardening Parameters (`/etc/sysctl.d/99-cis-hardening.conf`):
+```ini
+net.ipv4.ip_forward = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+fs.suid_dumpable = 0
+```
+
+### B. Partition Hardening Flags (`/etc/fstab`):
+```fstab
+tmpfs   /tmp        tmpfs   defaults,rw,nosuid,nodev,noexec   0 0
+tmpfs   /var/tmp    tmpfs   defaults,rw,nosuid,nodev,noexec   0 0
+tmpfs   /dev/shm    tmpfs   defaults,rw,nosuid,nodev,noexec   0 0
+```
+
+---
+
+## 2. SOC 2 Type II & ISO 27001 Mapping
+
+- **SOC 2 CC6.1 (Access Control)**: AWS IAM least privilege, STS temporary tokens, and **AWS SSM Session Manager** (no Port 22 SSH).
+- **SOC 2 CC6.8 (Malware & Threat Defense)**: **Trend Micro Deep Security Agents (DSA)** for File Integrity Monitoring (FIM) and Intrusion Prevention (IPS).
+- **ISO 27001 A.8.12 (Data Leakage)**: AWS KMS encryption at rest (EBS, S3, RDS) & TLS 1.3 in transit.
+
+---
+
+# SECTION 6: Database Operations, Performance Tuning & Multi-Region HA
+
+## 1. Relational Databases: PostgreSQL & MySQL (RDS / Aurora)
+
+### A. PostgreSQL SRE Performance Tuning Parameters
+- **`shared_buffers`**: **25% of total node RAM** for caching table pages.
+- **`work_mem`**: **64MB – 256MB** per query operation.
+- **`effective_cache_size`**: **75% of total node RAM** planner hint.
+- **PgBouncer**: Transaction-level connection pooler multiplexing 5,000 client connections over 50 persistent backend DB connections to prevent CPU saturation (`HTTP 503`).
+
+### B. Troubleshooting Query Bottlenecks (`pg_stat_statements`)
+```sql
+SELECT query, calls, total_exec_time, mean_exec_time
+FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 5;
+```
+
+## 2. NoSQL Databases: Amazon DynamoDB
+- **Partition Key Hashing**: Avoid hot keys (like `Date`) by using composite high-cardinality keys (`PK = TenantID#OrgID#Timestamp`).
+- **Amazon DAX**: In-memory write-through cache delivering microsecond read latency.
+
+## 3. Multi-Region High Availability & Disaster Recovery (DR)
+
+```
+Cost & Complexity:  Low ──────────────────────────────────────────────────────────► High
+Strategy:          [Backup & Restore] ──► [Pilot Light] ──► [Warm Standby] ──► [Active-Active]
+RTO / RPO:         Hours                  Minutes           Seconds             Near-Zero / Zero
+```
+
+- **Amazon Aurora Global Database**: Storage-level cross-region replication with **`< 1 second` replication lag**.
+- **DynamoDB Global Tables**: Active-active multi-region replication.
+- **AWS Route 53**: Latency and automated health-check failover routing.
+
+---
+
+# SECTION 7: AWS Compute Operations (EKS, ECS, EC2, Lambda, SSM)
+
+- **Amazon EKS**: Managed Kubernetes with **Karpenter** just-in-time node autoscaling, **IRSA** OIDC authorization, and **VPC CNI** IP prefix delegation (`ENABLE_PREFIX_DELEGATION=true`).
+- **Amazon ECS**: Fargate serverless containers vs EC2 launch types. Task Definitions and Services.
+- **Amazon EC2**: Auto Scaling Groups (ASGs) with Spot instances (saving 70-90%), `gp3` EBS volumes, Packer Golden AMIs.
+- **AWS Lambda**: Serverless compute (< 15 mins execution limit), Reserved vs Provisioned Concurrency (cold start elimination).
+- **AWS SSM**: **Session Manager** (bastion-less, SSH-less access with 0 open Port 22), Parameter Store, Patch Manager.
+
+---
+
+# SECTION 8: STAR Interview Model Answers
 
 ### Question: "How do you define SLIs using HTTP status codes, and what do you do when developers keep breaking the SLO?"
 **Model Answer**:
@@ -331,3 +365,21 @@ On August 1, 2026 at 14:10 UTC, the AutoRABIT Release Engine experienced a P1 ou
 > 2. **Mitigation**: We inspect our 4 Golden Signals. If a new deployment caused a spike in HTTP 502/503 errors, I authorize an immediate rollback via `helm rollback` or traffic shedding.
 > 3. **RCA & Blameless Postmortem**: Within 48 hours, I facilitate a Blameless Postmortem with SREs and Dev leads using the **5-Whys methodology** to focus on systemic flaws (e.g. missing connection pooling) rather than human error.
 > 4. **Preventative Action**: We generate concrete action items in Jira with clear completion SLAs (P0 items done in 3 days) to ensure technical debt is fixed permanently."*
+
+---
+
+### Question: "How do you optimize a slow PostgreSQL database supporting high-concurrency microservices?"
+**Model Answer**:
+> *"I optimize PostgreSQL through connection management, parameter tuning, and query analysis:
+> 1. **Connection Pooling**: To stop connection churn, I deploy **PgBouncer** in transaction pooling mode. This allows thousands of client connections to multiplex over a stable pool of ~50 backend DB connections, preventing CPU exhaustion.
+> 2. **Memory Tuning**: I set `shared_buffers` to 25% of node RAM for data caching, set `work_mem` between 64MB-256MB to avoid query disk spill, and set `effective_cache_size` to 75% RAM.
+> 3. **Query Optimization**: Using `pg_stat_statements`, I identify slow queries and run `EXPLAIN (ANALYZE, BUFFERS)` to replace sequential scans with composite B-tree indexes."*
+
+---
+
+### Question: "How do you design a Multi-Region Active-Active Disaster Recovery architecture on AWS?"
+**Model Answer**:
+> *"For near-zero RTO/RPO multi-region availability:
+> 1. **Data Layer**: We use **Amazon Aurora Global Database** for relational data (storage-level cross-region replication under 1 second) and **DynamoDB Global Tables** for active-active NoSQL replication.
+> 2. **Compute & Ingress**: We deploy identical EKS clusters in both regions (`us-east-1` and `us-west-2`) managed by Terraform.
+> 3. **Traffic Management**: **Route 53 Latency Routing** with automated DNS failover health checks routes users to the closest healthy region, ensuring zero disruption if an entire AWS region experiences an outage."*
