@@ -383,3 +383,228 @@ RTO / RPO:         Hours                  Minutes           Seconds             
 > 1. **Data Layer**: We use **Amazon Aurora Global Database** for relational data (storage-level cross-region replication under 1 second) and **DynamoDB Global Tables** for active-active NoSQL replication.
 > 2. **Compute & Ingress**: We deploy identical EKS clusters in both regions (`us-east-1` and `us-west-2`) managed by Terraform.
 > 3. **Traffic Management**: **Route 53 Latency Routing** with automated DNS failover health checks routes users to the closest healthy region, ensuring zero disruption if an entire AWS region experiences an outage."*
+
+---
+
+# SECTION 11: Kubernetes Production Incident Response & Real-World Case Study
+
+## 1. The Kubernetes Production Incident Framework
+
+In a production environment, the golden rule of incident response is:  
+👉 **Contain first (stop the bleeding), analyze second (find the root cause).**
+
+```
+Alert Received ➔ Triage & Scope ➔ Mitigate (Restore Service) ➔ Investigate RCA ➔ Deploy Fix ➔ Post-Mortem
+```
+
+---
+
+### Step 1: Triage & Blast Radius Assessment
+**Goal:** Determine what is broken, which namespace/service is affected, and whether the issue is cluster-wide or localized.
+
+1. **Check Node & Cluster Health:**
+   ```bash
+   kubectl get nodes -o wide
+   ```
+   *Look for:* Nodes in `NotReady` state or experiencing `MemoryPressure`, `DiskPressure`, or `PIDPressure`.
+
+2. **Identify Failing Pods Across Namespaces:**
+   ```bash
+   kubectl get pods -A --field-selector status.phase!=Running
+   ```
+   *Look for:* Pods in `CrashLoopBackOff`, `OOMKilled`, `ImagePullBackOff`, `Pending`, or `Terminating`.
+
+3. **Identify Pods with High Restart Counts:**
+   ```bash
+   kubectl get pods -n <namespace> --sort-by='.status.containerStatuses[0].restartCount'
+   ```
+
+---
+
+### Step 2: Containment & Immediate Mitigation
+**Goal:** Restore availability for users immediately before diving into hours of debugging.
+
+* **Scenario A: Issue started immediately after a deployment**  
+  Roll back to the previous stable revision:
+  ```bash
+  kubectl rollout undo deployment/<deployment-name> -n <namespace>
+  ```
+
+* **Scenario B: Issue is caused by a sudden traffic spike**  
+  Scale up replicas to share load:
+  ```bash
+  kubectl scale deployment/<deployment-name> --replicas=10 -n <namespace>
+  ```
+
+* **Scenario C: Specific pod is flapping or stuck**  
+  Remove the pod from the service load balancer selector by changing its labels so you can inspect it in isolation without routing customer traffic to it:
+  ```bash
+  kubectl label pod <pod-name> -n <namespace> app=isolated-debug --overwrite
+  ```
+
+---
+
+### Step 3: Deep-Dive Root Cause Analysis (RCA)
+**Goal:** Gather empirical evidence (logs, events, metrics) to determine why the failure happened.
+
+1. **Inspect Kubernetes Pod Events:**
+   ```bash
+   kubectl describe pod <pod-name> -n <namespace>
+   ```
+   *Look at the `Events:` section at the bottom for:*
+   * `OOMKilled` (Exit Code 137)
+   * `Liveness probe failed` (Container unresponsive)
+   * `FailedScheduling` (Insufficient CPU/Memory on nodes)
+
+2. **Inspect Current & Previous Container Logs:**
+   ```bash
+   # Current instance logs
+   kubectl logs <pod-name> -n <namespace> --tail=100
+
+   # CRITICAL: Logs from the container instance right BEFORE it crashed
+   kubectl logs <pod-name> -n <namespace> --previous --tail=100
+   ```
+
+3. **Check Resource Consumption:**
+   ```bash
+   kubectl top pod <pod-name> -n <namespace>
+   kubectl top nodes
+   ```
+
+4. **Verify Internal Network & DNS:**
+   ```bash
+   # Run a temporary debug pod to test service DNS resolution
+   kubectl run net-debug --rm -i --tty --image=busybox -- nslookup <service-name>.<namespace>.svc.cluster.local
+   ```
+
+---
+
+### Step 4: Permanent Resolution & Recovery
+**Goal:** Apply the fix safely using Kubernetes declarative configs.
+
+1. **Apply the updated manifest or patch:**
+   ```bash
+   kubectl apply -f deployment.yaml
+   ```
+2. **Monitor the rolling update in real-time:**
+   ```bash
+   kubectl rollout status deployment/<deployment-name> -n <namespace>
+   ```
+
+---
+
+### Step 5: Post-Mortem & Hardening
+1. Adjust container `resources.requests` and `resources.limits`.
+2. Configure **HorizontalPodAutoscaler (HPA)** for dynamic traffic.
+3. Configure **PodDisruptionBudgets (PDB)** to prevent node drains from causing downtime.
+4. Add alerts in Prometheus/Grafana for early warning signs (e.g., memory usage > 85%).
+
+---
+
+## 2. Real-World Case Study & Walkthrough
+
+### 🚨 Scenario: E-Commerce Checkout Downtime during Peak Sale
+* **Service:** `payment-service` in namespace `prod-checkout`.
+* **Symptom:** Customers receive `HTTP 502 Bad Gateway` at checkout. `PagerDuty` triggers an emergency alert.
+
+---
+
+### Step-by-Step Resolution
+
+#### 1. Initial Triage
+The SRE engineer checks the status of the `payment-service` pods:
+```bash
+kubectl get pods -n prod-checkout -l app=payment-service
+```
+**Output:**
+```text
+NAME                               READY   STATUS             RESTARTS   AGE
+payment-service-6d4b5c7d8-2x9zp    0/1     CrashLoopBackOff   6 (2m ago) 12m
+payment-service-6d4b5c7d8-8f1kl    1/1     Running            0          12m
+payment-service-6d4b5c7d8-m7n4q    0/1     OOMKilled          0          1m
+```
+
+#### 2. Deep-Dive Diagnostics
+Run `kubectl describe` on one of the failing pods:
+```bash
+kubectl describe pod payment-service-6d4b5c7d8-2x9zp -n prod-checkout
+```
+**Key Findings in Output:**
+```text
+Last State:     Terminated
+  Reason:       OOMKilled
+  Exit Code:    137
+Limits:
+  cpu:     500m
+  memory:  256Mi
+Events:
+  Warning  OOMKilled  2m ago  kubelet  Memory cgroup out of memory: Killed process 18293
+  Warning  Unhealthy  1m ago  kubelet  Liveness probe failed: HTTP probe failed with statuscode 500
+```
+
+Next, inspect the logs of the container instance that crashed right before restarting:
+```bash
+kubectl logs payment-service-6d4b5c7d8-2x9zp -n prod-checkout --previous --tail=50
+```
+**Log Output:**
+```text
+2026-08-01T17:42:10Z [ERROR] ConnectionPoolExhausted: Timeout waiting for idle database connection (active: 100/100).
+2026-08-01T17:42:12Z [FATAL] JavaScript heap out of memory: Allocation failed - process ran out of memory.
+```
+
+#### 3. Root Cause Identified
+1. **Primary Failure (Resource Constraints):** Memory limit (`256Mi`) was insufficient for high-concurrency traffic during the sale, causing Linux cgroups to terminate the container (`Exit Code 137`).
+2. **Secondary Failure (Database Connection Leak):** Unclosed connection handles accumulated during high load, exhausting the connection pool (`100/100`), causing requests to queue up in memory until the heap overflowed.
+
+#### 4. Applying the Fix
+Update `deployment.yaml` to increase memory limits and reduce database idle timeouts:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: prod-checkout
+spec:
+  replicas: 5
+  template:
+    spec:
+      containers:
+      - name: payment-api
+        image: registry.company.com/payment-api:v2.4.1
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        env:
+        - name: DB_MAX_CONNECTIONS
+          value: "50"
+        - name: DB_IDLE_TIMEOUT_MS
+          value: "3000"
+```
+
+Apply the deployment and monitor rollout:
+```bash
+kubectl apply -f deployment.yaml
+kubectl rollout status deployment/payment-service -n prod-checkout
+```
+
+#### 5. Verification
+Check that all pods are healthy and memory usage is within bounds:
+```bash
+kubectl get pods -n prod-checkout -l app=payment-service
+kubectl top pods -n prod-checkout -l app=payment-service
+```
+**Output:**
+```text
+NAME                               READY   STATUS    RESTARTS   AGE   MEMORY
+payment-service-7f89d9c4b-a1b2c    1/1     Running   0          3m    320Mi
+payment-service-7f89d9c4b-d3e4f    1/1     Running   0          3m    315Mi
+payment-service-7f89d9c4b-g5h6i    1/1     Running   0          3m    310Mi
+```
+
+Service is fully restored and latency returns to normal.
+
